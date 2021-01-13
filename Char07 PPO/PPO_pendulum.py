@@ -35,9 +35,9 @@ class ActorNet(nn.Module):
 
     def __init__(self):
         super(ActorNet, self).__init__()
-        self.fc = nn.Linear(3, 100)
-        self.mu_head = nn.Linear(100, 1)
-        self.sigma_head = nn.Linear(100, 1)
+        self.fc = nn.Linear(8, 100)
+        self.mu_head = nn.Linear(100, 2)
+        self.sigma_head = nn.Linear(100, 2)
 
     def forward(self, x):
         x = F.relu(self.fc(x))
@@ -50,8 +50,8 @@ class CriticNet(nn.Module):
 
     def __init__(self):
         super(CriticNet, self).__init__()
-        self.fc = nn.Linear(3, 100)
-        self.v_head = nn.Linear(100, 1)
+        self.fc = nn.Linear(8, 100)
+        self.v_head = nn.Linear(100, 2)
 
     def forward(self, x):
         x = F.relu(self.fc(x))
@@ -84,7 +84,7 @@ class Agent():
         action = dist.sample()
         action_log_prob = dist.log_prob(action)
         action = action.clamp(-2.0, 2.0)
-        return action.item(), action_log_prob.item()
+        return action[0].numpy(), action_log_prob[0].numpy()
 
     def get_value(self, state):
 
@@ -148,7 +148,7 @@ class Agent():
 
 
 def main():
-    env = gym.make('Pendulum-v0')
+    env = gym.make('LunarLanderContinuous-v2')
     env.seed(args.seed)
 
     agent = Agent()
@@ -162,12 +162,14 @@ def main():
 
         for t in range(200):
             action, action_log_prob = agent.select_action(state)
-            state_, reward, done, _ = env.step([action])
+            state_, reward, done, _ = env.step(action)
             if args.render:
                 env.render()
             if agent.store(Transition(state, action, action_log_prob, (reward + 8) / 8, state_)):
                 agent.update()
             score += reward
+            if done:
+                break;
             state = state_
 
         running_reward = running_reward * 0.9 + score * 0.1

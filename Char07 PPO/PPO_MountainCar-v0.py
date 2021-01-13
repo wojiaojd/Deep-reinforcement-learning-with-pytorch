@@ -17,15 +17,15 @@ from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 from tensorboardX import SummaryWriter
 
 # Parameters
-env_name = 'MountainCar-v0'
+env_name = 'LunarLanderContinuous-v2'
 gamma = 0.99
-render = False
+render = True
 seed = 1
 log_interval = 10
 
 env = gym.make(env_name).unwrapped
 num_state = env.observation_space.shape[0]
-num_action = env.action_space.n
+num_action = env.action_space.shape[0]
 torch.manual_seed(seed)
 env.seed(seed)
 Transition = namedtuple('Transition', ['state', 'action', 'a_log_prob', 'reward', 'next_state'])
@@ -35,12 +35,15 @@ class Actor(nn.Module):
     def __init__(self):
         super(Actor, self).__init__()
         self.fc1 = nn.Linear(num_state, 128)
-        self.action_head = nn.Linear(128, num_action)
+        self.action_mu = nn.Linear(128, num_action)
+        self.action_sigma = nn.Linear(128, num_action)
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
-        action_prob = F.softmax(self.action_head(x), dim=1)
-        return action_prob
+        # action_prob = F.softmax(self.action_head(x), dim=1)
+        mu = 2.0 * torch.relu(self.action_mu(x))
+        sigma = torch.relu(self.action_sigma(x))
+        return (mu, sigma)
 
 
 class Critic(nn.Module):
@@ -58,9 +61,9 @@ class Critic(nn.Module):
 class PPO():
     clip_param = 0.2
     max_grad_norm = 0.5
-    ppo_update_time = 10
-    buffer_capacity = 8000
-    batch_size = 32
+    ppo_update_time = 20
+    buffer_capacity = 10000
+    batch_size = 128
 
     def __init__(self):
         super(PPO, self).__init__()
@@ -80,10 +83,12 @@ class PPO():
     def select_action(self, state):
         state = torch.from_numpy(state).float().unsqueeze(0)
         with torch.no_grad():
-            action_prob = self.actor_net(state)
-        c = Categorical(action_prob)
-        action = c.sample()
-        return action.item(), action_prob[:, action.item()].item()
+            (mu, sigma) = self.actor_net(state)
+        norm_dist = Normal(mu, sigma)
+        action = norm_dist.sample()
+        action_log_prob = norm_dist.log_prob(action)
+        action = action.clamp(-1, 1)
+        return action[0].numpy(), action_log_prob[0].numpy()
 
     def get_value(self, state):
         state = torch.from_numpy(state)
@@ -125,9 +130,10 @@ class PPO():
                 delta = Gt_index - V
                 advantage = delta.detach()
                 # epoch iteration, PPO core!!!
-                action_prob = self.actor_net(state[index]).gather(1, action[index])  # new policy
-
-                ratio = (action_prob / old_action_log_prob[index])
+                mu_new, sigma_new = self.actor_net(state[index])  # new policy
+                action_prob = Normal(mu_new, sigma_new)
+                new_a_log_prob = action_prob.log_prob(action[index])
+                ratio = torch.exp_(new_a_log_prob - old_action_log_prob[index])
                 surr1 = ratio * advantage
                 surr2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * advantage
 
@@ -155,18 +161,27 @@ def main():
     agent = PPO()
     for i_epoch in range(1000):
         state = env.reset()
-        if render: env.render()
-
+        # if render : env.render()
+        total_reward = 0
         for t in count():
             action, action_prob = agent.select_action(state)
             next_state, reward, done, _ = env.step(action)
+
+            # if next_state[0] < 0:
+            #     reward = abs(next_state[0] * next_state[1])*0.3 + abs(next_state[1])*0.7
+            # else:
+            #     reward = next_state[0] * next_state[1]*0.3 + abs(next_state[1])*0.7
+            total_reward += reward
+
             trans = Transition(state, action, action_prob, reward, next_state)
-            if render: env.render()
+            if render and i_epoch > 500: env.render()
             agent.store_transition(trans)
             state = next_state
 
             if done:
-                if len(agent.buffer) >= agent.batch_size: agent.update(i_epoch)
+                print('i_epoch {} ; total_reward {}\n'.format(i_epoch, total_reward))
+                if len(agent.buffer) >= agent.batch_size:
+                    agent.update(i_epoch)
                 agent.writer.add_scalar('Steptime/steptime', t, global_step=i_epoch)
                 break
 

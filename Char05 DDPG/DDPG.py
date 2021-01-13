@@ -23,28 +23,30 @@ parser.add_argument('--mode', default='train', type=str) # mode = 'train' or 'te
 # OpenAI gym environment name, # ['BipedalWalker-v2', 'Pendulum-v0'] or any continuous environment
 # Note that DDPG is feasible about hyper-parameters.
 # You should fine-tuning if you change to another environment.
-parser.add_argument("--env_name", default="Pendulum-v0")
-parser.add_argument('--tau',  default=0.005, type=float) # target smoothing coefficient
+parser.add_argument("--env_name", default="MountainCarContinuous-v0")
+parser.add_argument('--tau',  default=0.001, type=float) # target smoothing coefficient
 parser.add_argument('--target_update_interval', default=1, type=int)
 parser.add_argument('--test_iteration', default=10, type=int)
 
-parser.add_argument('--learning_rate', default=1e-4, type=float)
+parser.add_argument('--learning_rate', default=1e-3, type=float)
 parser.add_argument('--gamma', default=0.99, type=int) # discounted factor
-parser.add_argument('--capacity', default=1000000, type=int) # replay buffer size
-parser.add_argument('--batch_size', default=100, type=int) # mini batch size
+parser.add_argument('--capacity', default=100000, type=int) # replay buffer size
+parser.add_argument('--batch_size', default=128, type=int) # mini batch size
 parser.add_argument('--seed', default=False, type=bool)
 parser.add_argument('--random_seed', default=9527, type=int)
 # optional parameters
 
 parser.add_argument('--sample_frequency', default=2000, type=int)
-parser.add_argument('--render', default=False, type=bool) # show UI or not
+parser.add_argument('--render', default=True, type=bool) # show UI or not
 parser.add_argument('--log_interval', default=50, type=int) #
 parser.add_argument('--load', default=False, type=bool) # load model
 parser.add_argument('--render_interval', default=100, type=int) # after render_interval, the env.render() will work
-parser.add_argument('--exploration_noise', default=0.1, type=float)
+parser.add_argument('--exploration_noise', default=0.6, type=float)
 parser.add_argument('--max_episode', default=100000, type=int) # num of games
 parser.add_argument('--print_log', default=5, type=int)
 parser.add_argument('--update_iteration', default=200, type=int)
+parser.add_argument('--max_length_of_trajectory', default=1000, type=int)
+
 args = parser.parse_args()
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -117,13 +119,13 @@ class Critic(nn.Module):
     def __init__(self, state_dim, action_dim):
         super(Critic, self).__init__()
 
-        self.l1 = nn.Linear(state_dim + action_dim, 400)
-        self.l2 = nn.Linear(400 , 300)
-        self.l3 = nn.Linear(300, 1)
+        self.l1 = nn.Linear(state_dim + action_dim, 64)
+        self.l2 = nn.Linear(64, 64)
+        self.l3 = nn.Linear(64, 1)
 
     def forward(self, x, u):
         x = F.relu(self.l1(torch.cat([x, u], 1)))
-        x = F.relu(self.l2(x))
+        x = self.l2(x)
         x = self.l3(x)
         return x
 
